@@ -14,51 +14,38 @@
 // 4. As result of session negotition, get server public key.
 // 5. Use server public key, my private key, to set an aes key using HKDF.
 // 6. Format Secret: aes iv is random seed, in secret struct it's the parameter (Array(Byte))
-// 7. Format Secret: encode the secret value for the value field in secret struct. 
+// 7. Format Secret: encode the secret value for the value field in secret struct.
 //      This encoding uses the aes_key from the associated Session.
 
 use error::SsError;
-use ss::{
-    SS_DBUS_NAME,
-    SS_PATH,
-    SS_INTERFACE_SERVICE,
-    ALGORITHM_PLAIN,
-    ALGORITHM_DH,
-};
+use ss::{ALGORITHM_DH, ALGORITHM_PLAIN, SS_DBUS_NAME, SS_INTERFACE_SERVICE, SS_PATH};
 
-use sha2::Sha256;
+use dbus::MessageItem::{Str, Variant};
+use dbus::{Connection, Message, MessageItem, Path};
 use hkdf::Hkdf;
-use dbus::{
-    Connection,
-    Message,
-    MessageItem,
-    Path,
-};
-use dbus::MessageItem::{
-    Str,
-    Variant,
-};
 use num::bigint::BigUint;
-use num::traits::{One, Zero};
 use num::integer::Integer;
+use num::traits::{One, Zero};
 use num::FromPrimitive;
-use rand::{Rng, rngs::OsRng};
+use rand::{rngs::OsRng, Rng};
+use sha2::Sha256;
 
-use std::rc::Rc;
 use std::ops::{Mul, Rem, Shr};
+use std::rc::Rc;
 
 // for key exchange
 lazy_static! {
     pub static ref DH_GENERATOR: BigUint = BigUint::from_u64(0x2).unwrap();
     pub static ref DH_PRIME: BigUint = BigUint::from_bytes_be(&[
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xC9, 0x0F, 0xDA, 0xA2, 0x21, 0x68, 0xC2, 0x34,
-        0xC4, 0xC6, 0x62, 0x8B, 0x80, 0xDC, 0x1C, 0xD1, 0x29, 0x02, 0x4E, 0x08, 0x8A, 0x67, 0xCC, 0x74,
-        0x02, 0x0B, 0xBE, 0xA6, 0x3B, 0x13, 0x9B, 0x22, 0x51, 0x4A, 0x08, 0x79, 0x8E, 0x34, 0x04, 0xDD,
-        0xEF, 0x95, 0x19, 0xB3, 0xCD, 0x3A, 0x43, 0x1B, 0x30, 0x2B, 0x0A, 0x6D, 0xF2, 0x5F, 0x14, 0x37,
-        0x4F, 0xE1, 0x35, 0x6D, 0x6D, 0x51, 0xC2, 0x45, 0xE4, 0x85, 0xB5, 0x76, 0x62, 0x5E, 0x7E, 0xC6,
-        0xF4, 0x4C, 0x42, 0xE9, 0xA6, 0x37, 0xED, 0x6B, 0x0B, 0xFF, 0x5C, 0xB6, 0xF4, 0x06, 0xB7, 0xED,
-        0xEE, 0x38, 0x6B, 0xFB, 0x5A, 0x89, 0x9F, 0xA5, 0xAE, 0x9F, 0x24, 0x11, 0x7C, 0x4B, 0x1F, 0xE6,
-        0x49, 0x28, 0x66, 0x51, 0xEC, 0xE6, 0x53, 0x81, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xC9, 0x0F, 0xDA, 0xA2, 0x21, 0x68, 0xC2,
+        0x34, 0xC4, 0xC6, 0x62, 0x8B, 0x80, 0xDC, 0x1C, 0xD1, 0x29, 0x02, 0x4E, 0x08, 0x8A, 0x67,
+        0xCC, 0x74, 0x02, 0x0B, 0xBE, 0xA6, 0x3B, 0x13, 0x9B, 0x22, 0x51, 0x4A, 0x08, 0x79, 0x8E,
+        0x34, 0x04, 0xDD, 0xEF, 0x95, 0x19, 0xB3, 0xCD, 0x3A, 0x43, 0x1B, 0x30, 0x2B, 0x0A, 0x6D,
+        0xF2, 0x5F, 0x14, 0x37, 0x4F, 0xE1, 0x35, 0x6D, 0x6D, 0x51, 0xC2, 0x45, 0xE4, 0x85, 0xB5,
+        0x76, 0x62, 0x5E, 0x7E, 0xC6, 0xF4, 0x4C, 0x42, 0xE9, 0xA6, 0x37, 0xED, 0x6B, 0x0B, 0xFF,
+        0x5C, 0xB6, 0xF4, 0x06, 0xB7, 0xED, 0xEE, 0x38, 0x6B, 0xFB, 0x5A, 0x89, 0x9F, 0xA5, 0xAE,
+        0x9F, 0x24, 0x11, 0x7C, 0x4B, 0x1F, 0xE6, 0x49, 0x28, 0x66, 0x51, 0xEC, 0xE6, 0x53, 0x81,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
     ]);
 }
 
@@ -92,8 +79,9 @@ impl Session {
                     SS_DBUS_NAME,
                     SS_PATH,
                     SS_INTERFACE_SERVICE,
-                    "OpenSession"
-                ).unwrap()
+                    "OpenSession",
+                )
+                .unwrap()
                 .append(Str(ALGORITHM_PLAIN.to_owned()))
                 // this argument should be input for algorithm
                 .append(Variant(Box::new(Str("".to_owned()))));
@@ -103,20 +91,15 @@ impl Session {
                 let items = r.get_items();
 
                 // Get session output
-                let session_output_dbus = try!(items
-                    .get(0)
-                    .ok_or(SsError::NoResult)
-                );
-                let session_output_variant_dbus: &MessageItem = session_output_dbus.inner().unwrap();
+                let session_output_dbus = try!(items.get(0).ok_or(SsError::NoResult));
+                let session_output_variant_dbus: &MessageItem =
+                    session_output_dbus.inner().unwrap();
 
                 // check session output is str
                 session_output_variant_dbus.inner::<&str>().unwrap();
 
                 // get session path
-                let object_path_dbus = try!(items
-                    .get(1)
-                    .ok_or(SsError::NoResult)
-                );
+                let object_path_dbus = try!(items.get(1).ok_or(SsError::NoResult));
                 let object_path: &Path = object_path_dbus.inner().unwrap();
 
                 Ok(Session {
@@ -127,13 +110,13 @@ impl Session {
                     my_private_key: None,
                     my_public_key: None,
                 })
-            },
+            }
             EncryptionType::Dh => {
                 // crypto: create private and public key, send public key
                 // requires some finagling to get pow() for bigints
                 // mpz is multiple precision integer type for gmp
                 let mut rng = OsRng::new().unwrap();
-                let mut private_key_bytes = [0;128];
+                let mut private_key_bytes = [0; 128];
                 rng.fill(&mut private_key_bytes);
 
                 let private_key = BigUint::from_bytes_be(&private_key_bytes);
@@ -142,7 +125,7 @@ impl Session {
                 let public_key_bytes = public_key.to_bytes_be();
                 let public_key_bytes_dbus: Vec<_> = public_key_bytes
                     .iter()
-                    .map(|&byte| { MessageItem::from(byte) })
+                    .map(|&byte| MessageItem::from(byte))
                     .collect();
 
                 // Method call to negotiate encrypted session
@@ -150,28 +133,28 @@ impl Session {
                     SS_DBUS_NAME,
                     SS_PATH,
                     SS_INTERFACE_SERVICE,
-                    "OpenSession"
-                ).unwrap()
+                    "OpenSession",
+                )
+                .unwrap()
                 .append(Str(ALGORITHM_DH.to_owned()))
-                .append(Variant(Box::new(MessageItem::new_array(public_key_bytes_dbus).unwrap())));
+                .append(Variant(Box::new(
+                    MessageItem::new_array(public_key_bytes_dbus).unwrap(),
+                )));
 
                 // Call to session
                 let r = try!(bus.send_with_reply_and_block(m, 2000));
                 let items = r.get_items();
 
                 // Get session output (which is the server public key when using encryption)
-                let session_output_dbus = try!(items
-                    .get(0)
-                    .ok_or(SsError::NoResult)
-                );
-                let session_output_variant_dbus: &MessageItem = session_output_dbus.inner().unwrap();
+                let session_output_dbus = try!(items.get(0).ok_or(SsError::NoResult));
+                let session_output_variant_dbus: &MessageItem =
+                    session_output_dbus.inner().unwrap();
 
                 // Since encrypted Variant should be a vector of bytes
                 let session_output_array_dbus: &Vec<_> = try!(session_output_variant_dbus
                     .inner()
                     // inner does not return an Error type, so have to manually map
-                    .map_err(|_| SsError::Parse)
-                );
+                    .map_err(|_| SsError::Parse));
 
                 let server_public_key: Vec<_> = session_output_array_dbus
                     .iter()
@@ -197,18 +180,16 @@ impl Session {
                 let info = [];
 
                 // output keying material
-                let mut okm = [0;16];
+                let mut okm = [0; 16];
 
                 let hk = Hkdf::<Sha256>::extract(salt, &ikm);
-                hk.expand(&info, &mut okm).expect("hkdf expand should never fail");
+                hk.expand(&info, &mut okm)
+                    .expect("hkdf expand should never fail");
 
                 let aes_key = okm.to_vec();
 
                 // get session path to store
-                let object_path_dbus = try!(items
-                    .get(1)
-                    .ok_or(SsError::NoResult)
-                );
+                let object_path_dbus = try!(items.get(1).ok_or(SsError::NoResult));
                 let object_path: &Path = object_path_dbus.inner().unwrap();
 
                 Ok(Session {
@@ -219,9 +200,8 @@ impl Session {
                     my_private_key: Some(private_key_bytes.to_vec()),
                     my_public_key: Some(public_key_bytes.to_vec()),
                 })
-            },
+            }
         }
-
     }
 
     pub fn is_encrypted(&self) -> bool {
@@ -252,9 +232,9 @@ fn powm(base: &BigUint, exp: &BigUint, modulus: &BigUint) -> BigUint {
 
 #[cfg(test)]
 mod test {
-    use std::rc::Rc;
     use super::*;
-    use dbus::{Connection, BusType};
+    use dbus::{BusType, Connection};
+    use std::rc::Rc;
 
     #[test]
     fn should_create_plain_session() {

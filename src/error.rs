@@ -42,7 +42,7 @@ pub enum SsError {
 }
 
 impl fmt::Display for SsError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt:: Result {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             // crypto error does not implement Display
             SsError::Crypto(_) => write!(f, "Crypto error: Invalid Length or Padding"),
@@ -92,4 +92,3 @@ impl From<dbus::Error> for SsError {
         SsError::Dbus(err)
     }
 }
-

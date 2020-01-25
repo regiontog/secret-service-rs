@@ -9,34 +9,14 @@ use error::SsError;
 use item::Item;
 use session::Session;
 use ss::{
-    SS_DBUS_NAME,
-    SS_INTERFACE_COLLECTION,
-    SS_INTERFACE_SERVICE,
-    SS_ITEM_LABEL,
-    SS_ITEM_ATTRIBUTES,
+    SS_DBUS_NAME, SS_INTERFACE_COLLECTION, SS_INTERFACE_SERVICE, SS_ITEM_ATTRIBUTES, SS_ITEM_LABEL,
     SS_PATH,
 };
-use util::{
-    exec_prompt,
-    format_secret,
-    Interface,
-};
+use util::{exec_prompt, format_secret, Interface};
 
-use dbus::{
-    BusName,
-    Connection,
-    MessageItem,
-    Path,
-};
 use dbus::Interface as InterfaceName;
-use dbus::MessageItem::{
-    Array,
-    Bool,
-    DictEntry,
-    ObjectPath,
-    Str,
-    Variant,
-};
+use dbus::MessageItem::{Array, Bool, DictEntry, ObjectPath, Str, Variant};
+use dbus::{BusName, Connection, MessageItem, Path};
 use std::rc::Rc;
 
 // Helper enum for
@@ -65,13 +45,13 @@ impl<'a> Collection<'a> {
             bus.clone(),
             BusName::new(SS_DBUS_NAME).unwrap(),
             collection_path.clone(),
-            InterfaceName::new(SS_INTERFACE_COLLECTION).unwrap()
+            InterfaceName::new(SS_INTERFACE_COLLECTION).unwrap(),
         );
         let service_interface = Interface::new(
             bus.clone(),
             BusName::new(SS_DBUS_NAME).unwrap(),
             Path::new(SS_PATH).unwrap(),
-            InterfaceName::new(SS_INTERFACE_SERVICE).unwrap()
+            InterfaceName::new(SS_INTERFACE_SERVICE).unwrap(),
         );
         Collection {
             bus: bus,
@@ -83,10 +63,9 @@ impl<'a> Collection<'a> {
     }
 
     pub fn is_locked(&self) -> ::Result<bool> {
-        self.collection_interface.get_props("Locked")
-            .map(|locked| {
-                locked.inner().unwrap()
-            })
+        self.collection_interface
+            .get_props("Locked")
+            .map(|locked| locked.inner().unwrap())
     }
 
     pub fn ensure_unlocked(&self) -> ::Result<()> {
@@ -100,16 +79,17 @@ impl<'a> Collection<'a> {
     //Helper function for locking and unlocking
     // TODO: refactor into utils? It should be same as collection
     fn lock_or_unlock(&self, lock_action: LockAction) -> ::Result<()> {
-        let objects = MessageItem::new_array(
-            vec![ObjectPath(self.collection_path.clone())]
-        ).unwrap();
+        let objects =
+            MessageItem::new_array(vec![ObjectPath(self.collection_path.clone())]).unwrap();
 
         let lock_action_str = match lock_action {
             LockAction::Lock => "Lock",
             LockAction::Unlock => "Unlock",
         };
 
-        let res = try!(self.service_interface.method(lock_action_str, vec![objects]));
+        let res = try!(self
+            .service_interface
+            .method(lock_action_str, vec![objects]));
 
         // If the action requires a prompt, execute it.
         if let Some(&Array(ref lock_action, _)) = res.get(0) {
@@ -141,9 +121,9 @@ impl<'a> Collection<'a> {
         // Returns prompt path. If there's a non-trivial prompt path, execute it.
         if let Some(&ObjectPath(ref prompt_path)) = prompt.get(0) {
             if &**prompt_path != "/" {
-                    let del_res = try!(exec_prompt(self.bus.clone(), prompt_path.clone()));
-                    println!("{:?}", del_res);
-                    return Ok(());
+                let del_res = try!(exec_prompt(self.bus.clone(), prompt_path.clone()));
+                println!("{:?}", del_res);
+                return Ok(());
             } else {
                 return Ok(());
             }
@@ -158,19 +138,15 @@ impl<'a> Collection<'a> {
 
         // map array of item paths to Item
         if let Array(item_array, _) = items {
-            Ok(item_array.iter().filter_map(|ref item| {
-                match **item {
+            Ok(item_array
+                .iter()
+                .filter_map(|ref item| match **item {
                     ObjectPath(ref path) => {
-                        Some(Item::new(
-                            self.bus.clone(),
-                            &self.session,
-                            path.clone()
-                        ))
-                    },
+                        Some(Item::new(self.bus.clone(), &self.session, path.clone()))
+                    }
                     _ => None,
-                }
-            }).collect::<Vec<_>>()
-            )
+                })
+                .collect::<Vec<_>>())
         } else {
             Err(SsError::Parse)
         }
@@ -178,37 +154,33 @@ impl<'a> Collection<'a> {
 
     pub fn search_items(&self, attributes: Vec<(&str, &str)>) -> ::Result<Vec<Item>> {
         // Process dbus args
-        let attr_dict_entries: Vec<_> = attributes.iter().map(|&(key, value)| {
-            let dict_entry = (Str(key.to_owned()), Str(value.to_owned()));
-            MessageItem::from(dict_entry)
-        }).collect();
-        let attr_type_sig = DictEntry(
-            Box::new(Str("".to_owned())),
-            Box::new(Str("".to_owned()))
-        ).type_sig();
-        let attr_dbus_dict = Array(
-            attr_dict_entries,
-            attr_type_sig
-        );
+        let attr_dict_entries: Vec<_> = attributes
+            .iter()
+            .map(|&(key, value)| {
+                let dict_entry = (Str(key.to_owned()), Str(value.to_owned()));
+                MessageItem::from(dict_entry)
+            })
+            .collect();
+        let attr_type_sig =
+            DictEntry(Box::new(Str("".to_owned())), Box::new(Str("".to_owned()))).type_sig();
+        let attr_dbus_dict = Array(attr_dict_entries, attr_type_sig);
 
         // Method call to SearchItem
-        let items = try!(self.collection_interface.method("SearchItems", vec![attr_dbus_dict]));
+        let items = try!(self
+            .collection_interface
+            .method("SearchItems", vec![attr_dbus_dict]));
 
         // TODO: Refactor to be clean like create_item?
         if let Array(ref item_array, _) = *items.get(0).unwrap() {
-            Ok(item_array.iter().filter_map(|ref item| {
-                match **item {
+            Ok(item_array
+                .iter()
+                .filter_map(|ref item| match **item {
                     ObjectPath(ref path) => {
-                        Some(Item::new(
-                            self.bus.clone(),
-                            &self.session,
-                            path.clone()
-                        ))
-                    },
+                        Some(Item::new(self.bus.clone(), &self.session, path.clone()))
+                    }
                     _ => None,
-                }
-            }).collect::<Vec<_>>()
-            )
+                })
+                .collect::<Vec<_>>())
         } else {
             Err(SsError::Parse)
         }
@@ -225,17 +197,18 @@ impl<'a> Collection<'a> {
     }
 
     pub fn set_label(&self, new_label: &str) -> ::Result<()> {
-        self.collection_interface.set_props("Label", Str(new_label.to_owned()))
+        self.collection_interface
+            .set_props("Label", Str(new_label.to_owned()))
     }
 
-    pub fn create_item(&self,
-                       label: &str,
-                       attributes:Vec<(&str, &str)>,
-                       secret: &[u8],
-                       replace: bool,
-                       content_type: &str,
-                       ) -> ::Result<Item> {
-
+    pub fn create_item(
+        &self,
+        label: &str,
+        attributes: Vec<(&str, &str)>,
+        secret: &[u8],
+        replace: bool,
+        content_type: &str,
+    ) -> ::Result<Item> {
         let secret_struct = try!(format_secret(&self.session, secret, content_type));
 
         // build dbus dict
@@ -243,7 +216,7 @@ impl<'a> Collection<'a> {
         // label
         let label_dbus = DictEntry(
             Box::new(Str(SS_ITEM_LABEL.to_owned())),
-            Box::new(Variant(Box::new(Str(label.to_owned()))))
+            Box::new(Variant(Box::new(Str(label.to_owned())))),
         );
 
         // initializing properties vector, preparing to push
@@ -257,13 +230,14 @@ impl<'a> Collection<'a> {
                 .map(|&(ref key, ref value)| {
                     DictEntry(
                         Box::new(Str((*key).to_owned())),
-                        Box::new(Str((*value).to_owned()))
+                        Box::new(Str((*value).to_owned())),
                     )
-                }).collect();
+                })
+                .collect();
             let attributes_dbus_dict = MessageItem::new_array(attributes_dbus).unwrap();
             let attributes_dict_entry = DictEntry(
                 Box::new(Str(SS_ITEM_ATTRIBUTES.to_owned())),
-                Box::new(Variant(Box::new(attributes_dbus_dict)))
+                Box::new(Variant(Box::new(attributes_dbus_dict))),
             );
             properties.push(attributes_dict_entry);
         }
@@ -272,28 +246,21 @@ impl<'a> Collection<'a> {
         let properties_dbus_dict = MessageItem::new_array(properties).unwrap();
 
         // Method call to CreateItem
-        let res = try!(self.collection_interface.method("CreateItem", vec![
-            properties_dbus_dict,
-            secret_struct,
-            Bool(replace)
-        ]));
+        let res = try!(self.collection_interface.method(
+            "CreateItem",
+            vec![properties_dbus_dict, secret_struct, Bool(replace)]
+        ));
 
         // This prompt handling is practically identical to create_collection
         // TODO: refactor
         let item_path: Path = {
             // Get path of created object
-            let created_object_path = try!(res
-                .get(0)
-                .ok_or(SsError::NoResult)
-            );
+            let created_object_path = try!(res.get(0).ok_or(SsError::NoResult));
             let created_path: &Path = created_object_path.inner().unwrap();
 
             // Check if that path is "/", if so should execute a prompt
             if &**created_path == "/" {
-                let prompt_object_path = try!(res
-                    .get(1)
-                    .ok_or(SsError::NoResult)
-                );
+                let prompt_object_path = try!(res.get(1).ok_or(SsError::NoResult));
                 let prompt_path: &Path = prompt_object_path.inner().unwrap();
 
                 // Exec prompt and parse result
@@ -310,13 +277,13 @@ impl<'a> Collection<'a> {
         Ok(Item::new(
             self.bus.clone(),
             &self.session,
-            item_path.clone()
+            item_path.clone(),
         ))
     }
 }
 
 #[cfg(test)]
-mod test{
+mod test {
     use super::super::*;
 
     #[test]
@@ -390,30 +357,31 @@ mod test{
         let collection = ss.get_default_collection().unwrap();
 
         // Create an item
-        let item = collection.create_item(
-            "test",
-            vec![("test_attributes_in_collection", "test")],
-            b"test_secret",
-            false,
-            "text/plain"
-        ).unwrap();
+        let item = collection
+            .create_item(
+                "test",
+                vec![("test_attributes_in_collection", "test")],
+                b"test_secret",
+                false,
+                "text/plain",
+            )
+            .unwrap();
 
         // handle empty vec search
         collection.search_items(Vec::new()).unwrap();
 
         // handle no result
-        let bad_search = collection.search_items(vec![("test_bad".into(), "test".into())]).unwrap();
+        let bad_search = collection
+            .search_items(vec![("test_bad".into(), "test".into())])
+            .unwrap();
         assert_eq!(bad_search.len(), 0);
 
         // handle correct search for item and compare
-        let search_item = collection.search_items(
-            vec![("test_attributes_in_collection", "test")]
-        ).unwrap();
+        let search_item = collection
+            .search_items(vec![("test_attributes_in_collection", "test")])
+            .unwrap();
 
-        assert_eq!(
-            item.item_path,
-            search_item[0].item_path
-        );
+        assert_eq!(item.item_path, search_item[0].item_path);
         item.delete().unwrap();
     }
 
@@ -450,6 +418,4 @@ mod test{
         // See item module
         // for creation of new item
     }
-
 }
-
