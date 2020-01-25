@@ -120,7 +120,7 @@ impl Session {
                 rng.fill(&mut private_key_bytes);
 
                 let private_key = BigUint::from_bytes_be(&private_key_bytes);
-                let public_key = powm(&DH_GENERATOR, &private_key, &DH_PRIME);
+                let public_key = DH_GENERATOR.modpow(&private_key, &DH_PRIME);
 
                 let public_key_bytes = public_key.to_bytes_be();
                 let public_key_bytes_dbus: Vec<_> = public_key_bytes
@@ -165,7 +165,7 @@ impl Session {
                 // TODO: Don't store keys except for aes?
                 let server_public_key = BigUint::from_bytes_be(&server_public_key);
                 let server_public_key_bytes = server_public_key.to_bytes_be();
-                let common_secret = powm(&server_public_key, &private_key, &DH_PRIME);
+                let common_secret = server_public_key.modpow(&private_key, &DH_PRIME);
 
                 let mut common_secret_bytes = common_secret.to_bytes_be();
                 let mut common_secret_padded = vec![0; 128 - common_secret_bytes.len()];
@@ -211,23 +211,6 @@ impl Session {
     pub fn get_aes_key(&self) -> Vec<u8> {
         self.aes_key.clone().unwrap()
     }
-}
-
-/// from https://github.com/plietar/librespot/blob/master/core/src/util/mod.rs#L53
-fn powm(base: &BigUint, exp: &BigUint, modulus: &BigUint) -> BigUint {
-    let mut base = base.clone();
-    let mut exp = exp.clone();
-    let mut result: BigUint = One::one();
-
-    while !exp.is_zero() {
-        if exp.is_odd() {
-            result = result.mul(&base).rem(modulus);
-        }
-        exp = exp.shr(1);
-        base = (&base).mul(&base).rem(modulus);
-    }
-
-    result
 }
 
 #[cfg(test)]
